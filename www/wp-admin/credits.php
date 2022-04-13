@@ -1,139 +1,157 @@
 <?php
 /**
- * Credits administration panel.
+ * WordPress Credits Administration API.
  *
  * @package WordPress
  * @subpackage Administration
+ * @since 4.4.0
  */
 
-/** WordPress Administration Bootstrap */
-require_once __DIR__ . '/admin.php';
-require_once __DIR__ . '/includes/credits.php';
+/**
+ * Retrieve the contributor credits.
+ *
+ * @since 3.2.0
+ *
+ * @return array|false A list of all of the contributors, or false on error.
+ */
+function wp_credits() {
+	// Include an unmodified $wp_version.
+	require ABSPATH . WPINC . '/version.php';
 
-$title = __( 'Credits' );
+	$locale = get_user_locale();
 
-list( $display_version ) = explode( '-', get_bloginfo( 'version' ) );
+	$results = get_site_transient( 'wordpress_credits_' . $locale );
 
-require_once ABSPATH . 'wp-admin/admin-header.php';
+	if ( ! is_array( $results )
+		|| false !== strpos( $wp_version, '-' )
+		|| ( isset( $results['data']['version'] ) && strpos( $wp_version, $results['data']['version'] ) !== 0 )
+	) {
+		$url     = "http://api.wordpress.org/core/credits/1.1/?version={$wp_version}&locale={$locale}";
+		$options = array( 'user-agent' => 'WordPress/' . $wp_version . '; ' . home_url( '/' ) );
 
-$credits = wp_credits();
-?>
-<div class="wrap about__container">
+		if ( wp_http_supports( array( 'ssl' ) ) ) {
+			$url = set_url_scheme( $url, 'https' );
+		}
 
-	<div class="about__header">
-		<div class="about__header-title">
-			<h1>
-				<?php _e( 'WordPress' ); ?>
-				<span><?php echo $display_version; ?></span>
-			</h1>
-		</div>
+		$response = wp_remote_get( $url, $options );
 
-		<div class="about__header-text">
-			<p>
-				<?php _e( 'Building more with blocks, faster and easier.' ); ?>
-			</p>
-		</div>
+		if ( is_wp_error( $response ) || 200 != wp_remote_retrieve_response_code( $response ) ) {
+			return false;
+		}
 
-		<nav class="about__header-navigation nav-tab-wrapper wp-clearfix" aria-label="<?php esc_attr_e( 'Secondary menu' ); ?>">
-			<a href="about.php" class="nav-tab"><?php _e( 'What&#8217;s New' ); ?></a>
-			<a href="credits.php" class="nav-tab nav-tab-active" aria-current="page"><?php _e( 'Credits' ); ?></a>
-			<a href="freedoms.php" class="nav-tab"><?php _e( 'Freedoms' ); ?></a>
-			<a href="privacy.php" class="nav-tab"><?php _e( 'Privacy' ); ?></a>
-		</nav>
-	</div>
+		$results = json_decode( wp_remote_retrieve_body( $response ), true );
 
-	<div class="about__section">
-		<div class="column">
-			<h2><?php _e( 'WordPress is created by a worldwide team of passionate individuals.' ); ?></h2>
+		if ( ! is_array( $results ) ) {
+			return false;
+		}
 
-			<p>
-				<?php
-				if ( ! $credits ) {
-					printf(
-						/* translators: 1: https://wordpress.org/about/, 2: https://make.wordpress.org/ */
-						__( 'WordPress is created by a <a href="%1$s">worldwide team</a> of passionate individuals. <a href="%2$s">Get involved in WordPress</a>.' ),
-						__( 'https://wordpress.org/about/' ),
-						__( 'https://make.wordpress.org/' )
-					);
-				} else {
-					printf(
-						/* translators: %s: https://make.wordpress.org/ */
-						__( 'Want to see your name in lights on this page? <a href="%s">Get involved in WordPress</a>.' ),
-						__( 'https://make.wordpress.org/' )
-					);
-				}
-				?>
-			</p>
-		</div>
+		set_site_transient( 'wordpress_credits_' . $locale, $results, DAY_IN_SECONDS );
+	}
 
-		<div class="about__image aligncenter">
-			<img src="data:image/svg+xml;charset=utf8,%3Csvg width='1000' height='300' viewbox='0 0 1000 300' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='%23F3F4F5' d='M0 0h1000v300H0z'/%3E%3Cpath style='mix-blend-mode:multiply' d='M39.6 140.22l931.1 3.36.8 76.5-929.5 6.6-2.4-86.46z' fill='%23216DD2'/%3E%3Cpath style='mix-blend-mode:multiply' d='M963.7 275.14s-.9-59.58-1-64.14c-.1-4.2-932.3 1.74-932.3 1.74L29 268.48v8.4' fill='%237FCDE6'/%3E%3Cpath style='mix-blend-mode:multiply' d='M958 73.32L47.8 70.26l1.2 78.66 907.3 4.26 1.7-79.86z' fill='%23072CF0'/%3E%3Cpath style='mix-blend-mode:multiply' d='M34 91.32l910.4-2.16L939.2 21 33.3 23.82l.7 67.5z' fill='%230188D9'/%3E%3C/svg%3E" alt="" />
-		</div>
-	</div>
-
-<?php
-if ( ! $credits ) {
-	echo '</div>';
-	require_once ABSPATH . 'wp-admin/admin-footer.php';
-	exit;
+	return $results;
 }
-?>
 
-	<hr />
+/**
+ * Retrieve the link to a contributor's WordPress.org profile page.
+ *
+ * @access private
+ * @since 3.2.0
+ *
+ * @param string $display_name  The contributor's display name (passed by reference).
+ * @param string $username      The contributor's username.
+ * @param string $profiles      URL to the contributor's WordPress.org profile page.
+ */
+function _wp_credits_add_profile_link( &$display_name, $username, $profiles ) {
+	$display_name = '<a href="' . esc_url( sprintf( $profiles, $username ) ) . '">' . esc_html( $display_name ) . '</a>';
+}
 
-	<div class="about__section">
-		<div class="column has-subtle-background-color">
-			<?php wp_credits_section_title( $credits['groups']['core-developers'] ); ?>
-			<?php wp_credits_section_list( $credits, 'core-developers' ); ?>
-			<?php wp_credits_section_list( $credits, 'contributing-developers' ); ?>
-		</div>
-	</div>
+/**
+ * Retrieve the link to an external library used in WordPress.
+ *
+ * @access private
+ * @since 3.2.0
+ *
+ * @param string $data External library data (passed by reference).
+ */
+function _wp_credits_build_object_link( &$data ) {
+	$data = '<a href="' . esc_url( $data[1] ) . '">' . esc_html( $data[0] ) . '</a>';
+}
 
-	<hr />
+/**
+ * Displays the title for a given group of contributors.
+ *
+ * @since 5.3.0
+ *
+ * @param array $group_data The current contributor group.
+ */
+function wp_credits_section_title( $group_data = array() ) {
+	if ( ! count( $group_data ) ) {
+		return;
+	}
 
-	<div class="about__section">
-		<div class="column">
-			<?php wp_credits_section_title( $credits['groups']['props'] ); ?>
-			<?php wp_credits_section_list( $credits, 'props' ); ?>
-		</div>
-	</div>
+	if ( $group_data['name'] ) {
+		if ( 'Translators' === $group_data['name'] ) {
+			// Considered a special slug in the API response. (Also, will never be returned for en_US.)
+			$title = _x( 'Translators', 'Translate this to be the equivalent of English Translators in your language for the credits page Translators section' );
+		} elseif ( isset( $group_data['placeholders'] ) ) {
+			// phpcs:ignore WordPress.WP.I18n.LowLevelTranslationFunction,WordPress.WP.I18n.NonSingularStringLiteralText
+			$title = vsprintf( translate( $group_data['name'] ), $group_data['placeholders'] );
+		} else {
+			// phpcs:ignore WordPress.WP.I18n.LowLevelTranslationFunction,WordPress.WP.I18n.NonSingularStringLiteralText
+			$title = translate( $group_data['name'] );
+		}
 
-	<hr />
+		echo '<h2 class="wp-people-group-title">' . esc_html( $title ) . "</h2>\n";
+	}
+}
 
-	<?php if ( isset( $credits['groups']['translators'] ) || isset( $credits['groups']['validators'] ) ) : ?>
-	<div class="about__section">
-		<div class="column">
-			<?php wp_credits_section_title( $credits['groups']['validators'] ); ?>
-			<?php wp_credits_section_list( $credits, 'validators' ); ?>
-			<?php wp_credits_section_list( $credits, 'translators' ); ?>
-		</div>
-	</div>
+/**
+ * Displays a list of contributors for a given group.
+ *
+ * @since 5.3.0
+ *
+ * @param array  $credits The credits groups returned from the API.
+ * @param string $slug    The current group to display.
+ */
+function wp_credits_section_list( $credits = array(), $slug = '' ) {
+	$group_data   = isset( $credits['groups'][ $slug ] ) ? $credits['groups'][ $slug ] : array();
+	$credits_data = $credits['data'];
+	if ( ! count( $group_data ) ) {
+		return;
+	}
 
-	<hr />
-	<?php endif; ?>
+	if ( ! empty( $group_data['shuffle'] ) ) {
+		shuffle( $group_data['data'] ); // We were going to sort by ability to pronounce "hierarchical," but that wouldn't be fair to Matt.
+	}
 
-	<div class="about__section">
-		<div class="column">
-			<?php wp_credits_section_title( $credits['groups']['libraries'] ); ?>
-			<?php wp_credits_section_list( $credits, 'libraries' ); ?>
-		</div>
-	</div>
-</div>
-<?php
-
-require_once ABSPATH . 'wp-admin/admin-footer.php';
-
-return;
-
-// These are strings returned by the API that we want to be translatable.
-__( 'Project Leaders' );
-/* translators: %s: The current WordPress version number. */
-__( 'Core Contributors to WordPress %s' );
-__( 'Noteworthy Contributors' );
-__( 'Cofounder, Project Lead' );
-__( 'Lead Developer' );
-__( 'Release Lead' );
-__( 'Release Design Lead' );
-__( 'Release Deputy' );
-__( 'Core Developer' );
-__( 'External Libraries' );
+	switch ( $group_data['type'] ) {
+		case 'list':
+			array_walk( $group_data['data'], '_wp_credits_add_profile_link', $credits_data['profiles'] );
+			echo '<p class="wp-credits-list">' . wp_sprintf( '%l.', $group_data['data'] ) . "</p>\n\n";
+			break;
+		case 'libraries':
+			array_walk( $group_data['data'], '_wp_credits_build_object_link' );
+			echo '<p class="wp-credits-list">' . wp_sprintf( '%l.', $group_data['data'] ) . "</p>\n\n";
+			break;
+		default:
+			$compact = 'compact' === $group_data['type'];
+			$classes = 'wp-people-group ' . ( $compact ? 'compact' : '' );
+			echo '<ul class="' . $classes . '" id="wp-people-group-' . $slug . '">' . "\n";
+			foreach ( $group_data['data'] as $person_data ) {
+				echo '<li class="wp-person" id="wp-person-' . esc_attr( $person_data[2] ) . '">' . "\n\t";
+				echo '<a href="' . esc_url( sprintf( $credits_data['profiles'], $person_data[2] ) ) . '" class="web">';
+				$size   = $compact ? 40 : 80;
+				$data   = get_avatar_data( $person_data[1] . '@md5.gravatar.com', array( 'size' => $size ) );
+				$data2x = get_avatar_data( $person_data[1] . '@md5.gravatar.com', array( 'size' => $size * 2 ) );
+				echo '<img src="' . esc_url( $data['url'] ) . '" srcset="' . esc_url( $data2x['url'] ) . ' 2x" class="gravatar" alt="" />' . "\n";
+				echo esc_html( $person_data[0] ) . "</a>\n\t";
+				if ( ! $compact ) {
+					// phpcs:ignore WordPress.WP.I18n.LowLevelTranslationFunction,WordPress.WP.I18n.NonSingularStringLiteralText
+					echo '<span class="title">' . translate( $person_data[3] ) . "</span>\n";
+				}
+				echo "</li>\n";
+			}
+			echo "</ul>\n";
+			break;
+	}
+}
